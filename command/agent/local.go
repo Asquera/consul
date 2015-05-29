@@ -55,6 +55,11 @@ type localState struct {
 	checkStatus map[string]syncStatus
 	checkTokens map[string]string
 
+	// Used to defer the intial sync of a check. This is a bit
+	// different from deferSync because it must hold the actual
+	// check configuration in case the check runs efore the sync.
+	deferCheckRegister map[string]*structs.HealthCheck
+
 	// Used to track checks that are being deferred
 	deferCheck map[string]*time.Timer
 
@@ -77,6 +82,7 @@ func (l *localState) Init(config *Config, logger *log.Logger) {
 	l.checks = make(map[string]*structs.HealthCheck)
 	l.checkStatus = make(map[string]syncStatus)
 	l.checkTokens = make(map[string]string)
+	l.deferCheckRegister = make(map[string]*structs.HealthCheck)
 	l.deferCheck = make(map[string]*time.Timer)
 	l.consulCh = make(chan struct{}, 1)
 	l.triggerCh = make(chan struct{}, 1)
@@ -210,9 +216,33 @@ func (l *localState) AddCheck(check *structs.HealthCheck, token string) {
 	l.Lock()
 	defer l.Unlock()
 
+	// Add the token immediately
+	l.checkTokens[check.CheckID] = token
+
+	// Defer registering the check. This applies a heuristic that allows
+	// checks some time to run before syncing to the catalog and being
+	// marked with their initial status.
+	l.deferCheckRegister[check.CheckID] = check
+	time.AfterFunc(time.Minute, func() {
+		l.Lock()
+		defer l.Unlock()
+		l.registerDeferredCheck(check.CheckID)
+	})
+}
+
+// registerDeferredCheck is used to register a new check after the
+// grace period. This allows some time for the check to run before
+// syncing in to the catalog.
+func (l *localState) registerDeferredCheck(checkID string) {
+	defer delete(l.deferCheckRegister, checkID)
+
+	check, ok := l.deferCheckRegister[checkID]
+	if !ok {
+		return
+	}
+
 	l.checks[check.CheckID] = check
 	l.checkStatus[check.CheckID] = syncStatus{}
-	l.checkTokens[check.CheckID] = token
 	l.changeMade()
 }
 
@@ -235,7 +265,11 @@ func (l *localState) UpdateCheck(checkID, status, output string) {
 
 	check, ok := l.checks[checkID]
 	if !ok {
-		return
+		// Check if we have a deferred check registration
+		if check, ok = l.deferCheckRegister[checkID]; !ok {
+			return
+		}
+		l.registerDeferredCheck(checkID)
 	}
 
 	// Do nothing if update is idempotent
