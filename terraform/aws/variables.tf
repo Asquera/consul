@@ -13,10 +13,12 @@ variable "user" {
 variable "ami" {
     description = "AWS AMI Id, if you change, make sure it is compatible with insatnce type, not all AMIs allow all insatnce types "
     default = {
-        us-east-1-ubuntu = "ami-83c525e8"
-        us-west-2-ubuntu = "ami-57e8d767"
-        us-east-1-rhel6 = "ami-b0fed2d8"
-        us-west-2-rhel6 = "ami-2faa861f"
+        us-east-1-ubuntu    = "ami-83c525e8"
+        us-west-2-ubuntu    = "ami-57e8d767"
+        eu-central-1-ubuntu = "ami-3048712d"
+        us-east-1-rhel6    = "ami-b0fed2d8"
+        us-west-2-rhel6    = "ami-fa0538e7"
+        eu-central-1-rhel6 = "
     }
 }
 
